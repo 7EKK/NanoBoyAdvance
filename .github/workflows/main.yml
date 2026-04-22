@@ -1,0 +1,56 @@
+name: Windows Build from Upstream
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # Runs every 6 hours (adjust if you want more/less frequent)
+  workflow_dispatch:        # Allows you to trigger it manually from the Actions tab
+
+jobs:
+  build-win64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout latest commit from official repo
+        uses: actions/checkout@v4
+        with:
+          repository: nba-emu/NanoBoyAdvance
+          ref: master
+          fetch-depth: 1
+
+      - name: Get short commit SHA (for artifact name)
+        id: sha
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          install: make mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-python-jinja mingw-w64-x86_64-python-lxml mingw-w64-x86_64-SDL2 mingw-w64-x86_64-qt5-static
+
+      - name: Build NanoBoyAdvance (Windows Qt static)
+        run: |
+          cmake \
+            -Bbuild \
+            -G"Unix Makefiles" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="-s" \
+            -DPython_EXECUTABLE="$(which python3)" \
+            -DPLATFORM_QT_STATIC=ON \
+            -DUSE_STATIC_SDL=ON \
+            -DQT5_STATIC_DIR="/mingw64/qt5-static"
+          cd build
+          make -j$NUMBER_OF_PROCESSORS
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p upload
+          cp -r build/bin/qt/{NanoBoyAdvance.exe,config.toml} upload/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NanoBoyAdvance-win64-${{ steps.sha.outputs.short_sha }}
+          path: upload/
+          if-no-files-found: error
